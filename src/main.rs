@@ -4,8 +4,12 @@ use std::io::Cursor;
 
 use anyhow::Result;
 use bytes::{Buf, Bytes, BytesMut};
-use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader, AsyncBufReadExt};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
+mod node;
+mod router;
+mod routes;
+mod response;
 
 enum Method {
     Get,
@@ -182,20 +186,36 @@ pub struct Connection {
 //     }
 // }
 
+use crate::router::Router;
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let addr = "127.0.0.1:42069";
     let listener = TcpListener::bind(addr).await?;
     println!("Listening on {}", addr);
 
+    let mut router = Router::new();
+    routes::configure(&mut router);
+
     loop {
         let (socket, _) = listener.accept().await?;
-        let mut stream = BufReader::new(socket);
         tokio::spawn(async move {
-            match stream.lines().next_line().await {
-                Ok(Some(s)) => {println!("{}", s)},
-                Ok(None) => {},
-                Err(_) => todo!()
+            let mut stream = BufReader::new(socket);
+            let buf = stream.fill_buf().await?;
+        
+            // read a single line if one exists
+            let mut line = String::new();
+            let mut line_reader = BufReader::new(buf);
+            let len = line_reader.read_line(&mut line).await?;
+
+            // consume bytes read from original reader
+            stream.consume(len);
+            match stream._line().await {
+                Ok(Some(s)) => {
+                    println!("{}", s)
+                }
+                Ok(None) => {}
+                Err(_) => todo!(),
             }
             // let mut buf = Vec::with_capacity(1024);
             // match stream.read(&mut buf).await {
@@ -209,6 +229,7 @@ async fn main() -> Result<()> {
             //         eprintln!("Encountered error: {}", e);
             //     }
             // }
+            Ok(())
         });
     }
 }
