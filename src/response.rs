@@ -1,11 +1,20 @@
 use tokio::fs::File;
 use tokio::io::Result;
-use tokio::io::{AsyncRead, BufReader};
-use tokio::io::{AsyncReadExt, AsyncWrite, BufWriter};
+use tokio::io::{AsyncReadExt, BufReader};
+use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::net::TcpStream;
 
 pub struct Response {
     writer: BufWriter<TcpStream>,
+}
+
+pub fn status(code: i32) -> &'static str {
+    match code {
+        200 => "OK",
+        400 => "BAD REQUEST",
+        404 => "NOT FOUND",
+        _ => "NOT IMPLEMENTED"
+    }
 }
 
 impl Response {
@@ -15,9 +24,9 @@ impl Response {
         }
     }
 
-    pub async fn write_status(&mut self, code: i32, status: &str) -> Result<usize> {
+    pub async fn write_status(&mut self, code: i32) -> Result<usize> {
         self.writer
-            .write(format!("HTTP/1.1 {} {}\n", code, status).as_bytes())
+            .write(format!("HTTP/1.1 {} {}\n", code, status(code)).as_bytes())
             .await
     }
 
@@ -28,7 +37,7 @@ impl Response {
     }
 
     pub async fn write_body(&mut self, val: &[u8]) -> Result<usize> {
-        self.write_header("content-length", val.len()).await?;
+        self.write_header("content-length", val.len().into()).await?;
         self.writer.write(b"\n").await?;
         self.writer.write(val).await
     }
@@ -51,7 +60,7 @@ impl Response {
         }
     }
 
-    pub fn write_file(&mut self, path: &str) -> Result<()> {
+    pub async fn write_file(&mut self, path: &str) -> Result<()> {
         let file = File::open(path).await?;
         let mut buf = Vec::new(); // with_capacity if we know file size?
         let mut reader = BufReader::new(file);
@@ -60,17 +69,19 @@ impl Response {
         self.write_header(
             "content-type",
             &format!("{}; charset=UTF-8", self.mime_type(path)),
-        ).await?;
-        self.write_body(&buf)
+        )
+        .await?;
+        self.write_body(&buf).await?;
+        Ok(())
     }
 
-    pub fn flush(&mut self) -> Result<()> {
-        self.writer.flush()
+    pub async fn flush(&mut self) -> Result<()> {
+        self.writer.flush().await
     }
 
-    pub fn sendfile(&mut self, code: i32, status: &str, path: &str) -> Result<()> {
-        self.write_status(code, status).await?;
-        self.write_file(path)?;
-        self.flush()
+    pub async fn sendfile(&mut self, code: i32, path: &str) -> Result<()> {
+        self.write_status(code).await?;
+        self.write_file(path).await?;
+        self.flush().await
     }
 }

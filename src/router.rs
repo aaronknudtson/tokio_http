@@ -1,7 +1,9 @@
 use std::io::Result;
 use tokio::net::TcpStream;
+use tokio::io::{BufReader, AsyncRead, AsyncBufReadExt};
 use std::collections::HashMap;
 use crate::node::Node;
+use crate::response::Response;
 
 #[derive(PartialEq, Eq, Hash)]
 pub enum Method {
@@ -24,8 +26,8 @@ impl Router {
         }
     }
 
-    pub fn route_client(&self, client: TcpStream) -> Result<()> {
-        let mut stream = BufReader::new(socket);
+    pub async fn route_client(&self, client: TcpStream) -> Result<()> {
+        let mut stream = BufReader::new(client);
         let buf = stream.fill_buf().await?;
 
         // read a single line if one exists
@@ -40,11 +42,15 @@ impl Router {
 
         let parts: Vec<&str> = line.split(" ").collect();
         if parts.len() < 2 {
-            
+            let res = Response::new(client);
+            res.sendfile(400, "static/_400.html")
         } else {
             match (parts[0], parts[1]) {
                 ("GET", path) => self.handle(Method::GET, path, client),
-                _ => 
+                _ => {
+                    let res = Response::new(client);
+                    res.sendfile(404, "static/_404.html")
+                }
             }
         }
     }
