@@ -1,8 +1,8 @@
 use tokio::fs::File;
 use tokio::io::Result;
 use tokio::io::{AsyncReadExt, BufReader};
-use tokio::io::{AsyncWriteExt, BufWriter};
-use tokio::net::TcpStream;
+use tokio::io::{AsyncWrite, AsyncWriteExt, BufWriter};
+use tokio::net::{TcpStream, tcp::WriteHalf};
 
 pub struct Response {
     writer: BufWriter<TcpStream>,
@@ -18,7 +18,7 @@ pub fn status(code: i32) -> &'static str {
 }
 
 impl Response {
-    pub fn new(client: TcpStream) -> Self {
+    pub fn new(client: WriteHalf) -> Self {
         Self {
             writer: BufWriter::new(client),
         }

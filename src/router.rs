@@ -1,3 +1,5 @@
+use std::future::Future;
+use std::pin::Pin;
 use std::io::Result;
 use tokio::net::TcpStream;
 use tokio::io::{BufReader, AsyncRead, AsyncBufReadExt};
@@ -14,7 +16,8 @@ pub enum Method {
     DELETE
 }
 
-pub type HandlerFn = fn(TcpStream) -> Result<()>;
+pub type HandlerRes = Pin<Box<dyn Future<Output=Result<()>>>>;
+pub type HandlerFn = Box<fn(&mut TcpStream) ->  HandlerRes>;
 pub struct Router {
     routes: HashMap<Method, Node>
 }
@@ -26,8 +29,9 @@ impl Router {
         }
     }
 
-    pub async fn route_client(&self, client: TcpStream) -> Result<()> {
-        let mut stream = BufReader::new(client);
+    pub async fn route_client(&self, client: &mut TcpStream) -> Result<()> {
+        let (reader, writer) = client.split();
+        let mut stream = BufReader::new(reader);
         let buf = stream.fill_buf().await?;
 
         // read a single line if one exists
@@ -42,14 +46,14 @@ impl Router {
 
         let parts: Vec<&str> = line.split(" ").collect();
         if parts.len() < 2 {
-            let res = Response::new(client);
-            res.sendfile(400, "static/_400.html")
+            let mut res = Response::new(writer);
+            res.sendfile(400, "static/_400.html").await
         } else {
             match (parts[0], parts[1]) {
-                ("GET", path) => self.handle(Method::GET, path, client),
+                ("GET", path) => self.handle(Method::GET, path, client).await,
                 _ => {
-                    let res = Response::new(client);
-                    res.sendfile(404, "static/_404.html")
+                    let mut res = Response::new(writer);
+                    res.sendfile(404, "static/_404.html").await
                 }
             }
         }
@@ -60,10 +64,10 @@ impl Router {
 
     }
 
-    pub fn handle(&self, method: Method, path: &str, client: TcpStream) -> Result<()> {
+    pub async fn handle(&self, method: Method, path: &str, client: &mut TcpStream) -> Result<()> {
         if let Some(node) = self.routes.get(&method) {
             if let Some(handler) = node.get(path) {
-                return handler(client);
+                return handler(client).await;
             }
         }
         Ok(())
